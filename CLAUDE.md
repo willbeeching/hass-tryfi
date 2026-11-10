@@ -71,6 +71,9 @@ Learned from upstream's issue tracker; see `docs/UPSTREAM_ISSUES.md`.
   written. An unknown type reads as unknown, not as the raw API name.
 - **`place` is `null`** when resting somewhere unsaved, and a walk can start
   before it has positions.
+- **Ids go through `models.identity`.** Null or empty is no id: never a
+  device, and an entry listed without one makes the listing incomplete so it
+  cannot remove anything. Ids are text, whatever type TryFi sends.
 - **TryFi returns 0 for distance** on days with thousands of steps, and 0 for
   daily rest for hours at a time. Those are TryFi's figures; do not "fix" them.
 

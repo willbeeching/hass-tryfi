@@ -20,7 +20,16 @@ from .errors import (
     TryFiConnectionError,
     TryFiError,
 )
-from .models import JSON, MODE_LOST, MODE_NORMAL, Base, NoCollar, Pet, dig
+from .models import (
+    JSON,
+    MODE_LOST,
+    MODE_NORMAL,
+    Base,
+    NoCollar,
+    Pet,
+    dig,
+    identity,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -119,11 +128,13 @@ class TryFiClient:
             if not isinstance(house_pets, list) or not isinstance(house_bases, list):
                 complete = False
             for profile in house_pets if isinstance(house_pets, list) else []:
-                if not isinstance(profile, dict):
+                pet_id = identity(dig(profile, "id"))
+                if pet_id is None:
+                    # Listed without an id: whichever pet it is cannot be
+                    # matched, so the listing cannot show any pet is gone.
                     complete = False
                     continue
-                if profile.get("id"):
-                    listed_pets.add(str(profile["id"]))
+                listed_pets.add(pet_id)
                 pet = await self._read_pet(profile, previous)
                 if pet is not None:
                     pets.append(pet)
@@ -146,11 +157,9 @@ class TryFiClient:
         try:
             pet = Pet.from_profile(profile)
         except NoCollar:
+            # The refresh has already set aside pets without an id, so a pet
+            # here can only lack a collar.
             LOGGER.debug("Pet %s has no collar; skipping it", profile.get("name"))
-            return None
-        except (KeyError, TypeError, ValueError) as err:
-            # No id to read it by. Nothing else on a pet can fail to parse.
-            LOGGER.warning("Skipping a pet TryFi described without an id: %r", err)
             return None
         old = previous.get(pet.pet_id)
         # Each group on its own: one failed query costs that group, carried

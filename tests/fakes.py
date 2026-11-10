@@ -62,6 +62,10 @@ class FakeCloud:
         self.mutations_rejected = False
         # Keys set (or, with None, nulled) on the collared pet's description.
         self.pet_overrides: dict[str, Any] = {}
+        # Keys deleted from the collared pet's description, e.g. "id".
+        self.pet_missing: set[str] = set()
+        # Keys set (or, with None, nulled) on the base's description.
+        self.base_overrides: dict[str, Any] = {}
         self.has_location = True
         # "rest", "rest_unsaved_place" (place: null), "walk", "walk_no_positions"
         self.location_mode = "rest"
@@ -161,6 +165,8 @@ class FakeCloud:
                 }
             )
             pets[0].update(self.pet_overrides)
+            for key in self.pet_missing:
+                pets[0].pop(key, None)
         pets.extend(copy.deepcopy(self.extra_pets))
         base = {
             "baseId": BASE_ID,
@@ -173,6 +179,7 @@ class FakeCloud:
         }
         for key in self.base_missing:
             base.pop(key, None)
+        base.update(self.base_overrides)
         bases = [base] if self.base_present else []
         return [{"household": {"pets": pets, "bases": bases}}]
 

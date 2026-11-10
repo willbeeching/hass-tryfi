@@ -40,6 +40,7 @@ same JSON post with the same variables. Only api.tryfi.com is ever contacted.
 | Connection detail kept structured | Which base, whose phone, what signal (#60). |
 | The pets and bases the account lists are recorded, and whether the listing was complete | So a device is removed only when a complete listing leaves it out, never because one refresh could not read it or TryFi answered with errors. |
 | Every object read through a check that it is one | TryFi can send null for any field; `.get()` on a null failed setup. `tests/test_client_nulls.py` nulls every field of every answer in turn. |
+| Ids validated and compared as text | A null or empty id became a device called "None", and its absence removed the real device. An id sent as a number one time and text the next is the same id. |
 | The session is detached, never closed | On a session Home Assistant created, `close()` only logs a warning. |
 
 Issue numbers are on [sbabcock23/hass-tryfi](https://github.com/sbabcock23/hass-tryfi/issues).

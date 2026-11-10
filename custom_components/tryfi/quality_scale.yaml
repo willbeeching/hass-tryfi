@@ -139,8 +139,9 @@ rules:
     comment: >-
       A device is removed when TryFi stops listing its pet or base, and only
       on a complete listing: an answer with errors beside its data, a
-      household whose pets or bases came back null, an unreadable entry, or
-      an answer listing nothing removes nothing. A pet still listed but
+      household whose pets or bases came back null, an unreadable entry, an
+      entry without a usable id, or an answer listing nothing removes
+      nothing. Ids are compared as text. A pet still listed but
       without its collar is kept and can be deleted by hand; one deleted by
       hand gets its entities back if it returns.
 

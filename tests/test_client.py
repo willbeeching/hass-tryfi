@@ -416,3 +416,18 @@ async def test_detaching_lets_go_of_the_session(cloud: FakeCloud) -> None:
     client = await _signed_in(cloud)
     client.detach()
     assert cloud.sessions[0].detached
+
+
+@pytest.mark.parametrize("pet_id", [None, "", "  ", True, [], {}])
+def test_a_pet_needs_a_usable_id(pet_id: object) -> None:
+    from custom_components.tryfi.client import Pet
+
+    with pytest.raises(TypeError):
+        Pet.from_profile({"id": pet_id, "device": {"id": "device"}})
+
+
+@pytest.mark.parametrize(("raw", "expected"), [(42, "42"), ("pet-1", "pet-1")])
+def test_ids_are_compared_as_text(raw: object, expected: str) -> None:
+    from custom_components.tryfi.client import Pet
+
+    assert Pet.from_profile({"id": raw, "device": {"id": raw}}).pet_id == expected

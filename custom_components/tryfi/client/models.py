@@ -34,6 +34,24 @@ def obj(value: Any) -> JSON:
     return value
 
 
+def identity(value: Any) -> str | None:
+    """A pet, collar or base id as text, or None when there is no usable one.
+
+    Ids are what devices are matched on, so they are compared as text: an id
+    sent as a number one time and a string the next is the same id. Null, an
+    empty string or anything else is no id at all, and must never stand in
+    for one: it once became a device called "None", and its absence once
+    removed the real device (review of c2adf91).
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
 def dig(value: Any, *keys: str) -> Any:
     """value[k1][k2]..., or None as soon as a level is not an object."""
     for key in keys:
@@ -149,7 +167,7 @@ class Collar:
         # The detail behind the type, which upstream flattened into one string
         # or dropped: which base, whose phone, what signal (#60).
         self.signal_strength = state.get("signalStrengthPercent")
-        self.connected_base_id = (state.get("chargingBase") or {}).get("id")
+        self.connected_base_id = identity(dig(state, "chargingBase", "id"))
         self.connected_person = (state.get("user") or {}).get("firstName")
         self.connection_date = parse_time(state.get("date"))
 
@@ -193,14 +211,18 @@ class Pet:
         and the TypeError abandoned every pet on the account: "only the
         bases show up" (#61, #62, #67, #87, #96, #99, #102).
         """
+        pet_id = identity(profile.get("id"))
+        if pet_id is None:
+            raise TypeError("a pet without an id")
         device = profile.get("device")
-        if not isinstance(device, dict) or not device.get("id"):
+        device_id = identity(dig(device, "id"))
+        if not isinstance(device, dict) or device_id is None:
             raise NoCollar(profile.get("name"))
-        collar = Collar(device_id=device["id"])
+        collar = Collar(device_id=device_id)
         collar.update(device)
         photo = dig(profile, "photos", "first", "image", "fullSize")
         return cls(
-            pet_id=str(profile["id"]),
+            pet_id=pet_id,
             collar=collar,
             name=profile.get("name"),
             breed=dig(profile, "breed", "name"),
@@ -307,11 +329,14 @@ class Base:
     @classmethod
     def from_json(cls, base: JSON) -> Base:
         base = obj(base)
+        base_id = identity(base.get("baseId"))
+        if base_id is None:
+            raise TypeError("a base without an id")
         position = base.get("position")
         position = position if isinstance(position, dict) else {}
         return cls(
-            base_id=base["baseId"],
-            name=base.get("name") or base["baseId"],
+            base_id=base_id,
+            name=base.get("name") or base_id,
             online=base.get("online"),
             online_quality=base.get("onlineQuality"),
             latitude=position.get("latitude"),
