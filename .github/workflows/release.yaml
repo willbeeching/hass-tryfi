@@ -12,6 +12,9 @@ on:
       notes:
         description: "Optional notes shown above the changelog (upgrade steps, warnings)"
         required: false
+      since:
+        description: "Optional commit or tag the changelog starts after, when there is no previous release tag (the first release of a fork)"
+        required: false
 
 jobs:
   release:
@@ -42,8 +45,17 @@ jobs:
         id: prev_tag
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
+          SINCE: ${{ inputs.since }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "$SINCE" ]; then
+            # Without a release tag before it, the changelog would run back
+            # through every upstream commit the fork inherited.
+            git rev-parse -q --verify "$SINCE^{commit}" >/dev/null || {
+              echo "since: $SINCE is not a commit in this repository" >&2
+              exit 1
+            }
+            PREV_TAG="$SINCE"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Usually the new tag does not exist yet on a dispatch run, so the
             # latest tag is the previous release. Not on a re-run, though —
             # re-dispatching the same version to correct its notes is a normal
