@@ -1,18 +1,12 @@
 [tool.isort]
 profile = "black"
-# The vendored library is kept as close to the commit it came from as possible,
-# so it can be compared line for line. Formatting it would bury the few lines
-# that were changed on purpose under thousands that were not.
-extend_skip_glob = ["custom_components/tryfi/pytryfi/*"]
 
 [tool.black]
 target-version = ["py312"]
-extend-exclude = "custom_components/tryfi/pytryfi/"
 
 [tool.ruff]
 line-length = 88
 target-version = "py312"
-extend-exclude = ["custom_components/tryfi/pytryfi"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RET", "PTH"]
@@ -24,10 +18,9 @@ ignore = [
     "UP040",
 ]
 
-[tool.coverage.run]
-# Vendored, and tested through the integration's own behaviour rather than
-# held to the per-module floor: see custom_components/tryfi/pytryfi/VENDORED.md.
-omit = ["custom_components/tryfi/pytryfi/*"]
+[tool.ruff.lint.per-file-ignores]
+# TryFi's GraphQL is kept character for character; see client/queries.py.
+"custom_components/tryfi/client/queries.py" = ["E501"]
 
 [tool.mypy]
 # The version mypy parses under, which is core's floor rather than this
@@ -56,18 +49,6 @@ no_implicit_reexport = true
 strict_equality = true
 extra_checks = true
 exclude = "^tests/"
-# Module names start at tryfi, not custom_components.tryfi: custom_components
-# has no __init__.py, so mypy takes tryfi as the top-level package.
-#
-# pytryfi has no annotations. Calling it is allowed; what it returns is Any,
-# and warn_return_any still catches that leaking out of a typed function.
-untyped_calls_exclude = ["tryfi.pytryfi"]
-
-# The vendored library is checked by nothing here, deliberately: annotating it
-# would mean rewriting it, which is the opposite of keeping it comparable.
-[[tool.mypy.overrides]]
-module = "tryfi.pytryfi.*"
-ignore_errors = true
 
 # Home Assistant publishes device_tracker's public API by re-exporting it from
 # the package __init__ with `# noqa: F401` and no `__all__`, which is exactly

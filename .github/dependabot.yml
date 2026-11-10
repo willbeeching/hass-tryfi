@@ -24,3 +24,6 @@ updates:
       # twice and the old one never, which the lane then fails on its own
       # assertion.
       - dependency-name: pytest-homeassistant-custom-component
+      # And pycares 4.9 started a thread the 2025.1 harness reports as lingering;
+      # widening this reinstates a break that is already understood.
+      - dependency-name: pycares

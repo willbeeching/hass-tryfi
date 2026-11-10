@@ -1,15 +1,22 @@
-"""Shared fixtures: TryFi's cloud, replaced at the requests.Session level."""
+"""Shared fixtures: TryFi's cloud, replaced at the HTTP session."""
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
-import requests
-from fakes import FakeCloud, make_session
+from fakes import FakeCloud, FakeSession
 
 
 @pytest.fixture
 def cloud(monkeypatch: pytest.MonkeyPatch) -> FakeCloud:
-    """Every requests.Session pytryfi opens talks to this instead of TryFi."""
+    """Every session the integration creates talks to this instead of TryFi."""
     fake = FakeCloud()
-    monkeypatch.setattr(requests, "Session", make_session(fake))
+
+    def create(hass: Any, **kwargs: Any) -> FakeSession:
+        return FakeSession(fake)
+
+    monkeypatch.setattr(
+        "custom_components.tryfi.api.async_create_clientsession", create
+    )
     return fake

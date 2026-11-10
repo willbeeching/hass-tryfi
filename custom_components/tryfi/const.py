@@ -21,7 +21,7 @@ CONF_POLLING_RATE: Final = "polling"
 
 
 def account_id(username: str) -> str:
-    """The config entry's unique id: the sign-in email, case and spaces aside."""
+    """A login email as compared between entries: case and spaces aside."""
     return username.strip().lower()
 
 

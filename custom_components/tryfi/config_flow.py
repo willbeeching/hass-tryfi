@@ -1,4 +1,4 @@
-"""Config, re-authentication and options flows for TryFi."""
+"""Config, discovery, re-authentication, reconfigure and options flows."""
 
 from __future__ import annotations
 
@@ -30,8 +30,9 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.helpers.service_info.bluetooth import BluetoothServiceInfo
 
-from .api import TryFiAuthError, TryFiConnectionError, connect
+from .api import TryFiAuthError, TryFiError, async_connect
 from .const import (
     CONF_PASSWORD,
     CONF_POLLING_RATE,
@@ -66,10 +67,22 @@ STEP_USER_SCHEMA = vol.Schema(
     }
 )
 STEP_REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): _PASSWORD})
+STEP_RECONFIGURE_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_USERNAME): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.EMAIL)
+        ),
+        vol.Required(CONF_PASSWORD): _PASSWORD,
+    }
+)
 
 
 class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Sign in to TryFi."""
+    """Sign in to TryFi.
+
+    The entry's unique id is TryFi's own user id, read at sign-in, so it
+    survives a change of login email and tells one account from another.
+    """
 
     VERSION = 1
 
@@ -86,17 +99,17 @@ class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
             # One entry per account: a second polls TryFi for the same pets and
             # its entities collide with the first's unique ids. Entries made by
             # upstream have no unique id until they load here, so they are
-            # matched on their email as well.
-            unique_id = account_id(user_input[CONF_USERNAME])
-            await self.async_set_unique_id(unique_id)
-            self._abort_if_unique_id_configured()
+            # matched on their email before signing in at all.
+            email = account_id(user_input[CONF_USERNAME])
             for existing in self._async_current_entries(include_ignore=False):
-                if account_id(existing.data.get(CONF_USERNAME, "")) == unique_id:
+                if account_id(existing.data.get(CONF_USERNAME, "")) == email:
                     return self.async_abort(reason="already_configured")
-            errors = await self._sign_in(
+            user_id, errors = await self._sign_in(
                 user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
             )
-            if not errors:
+            if user_id is not None:
+                await self.async_set_unique_id(user_id)
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=user_input[CONF_USERNAME],
                     data={
@@ -113,6 +126,31 @@ class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_bluetooth(
+        self, discovery_info: BluetoothServiceInfo
+    ) -> ConfigFlowResult:
+        """A Fi collar heard by Home Assistant's Bluetooth.
+
+        It says only that a collar is nearby, not whose account it is on, so
+        it leads to the sign-in form; and once any account is set up, the
+        collars it hears are already accounted for.
+        """
+        if self._async_current_entries(include_ignore=False):
+            return self.async_abort(reason="already_configured")
+        # One discovery at a time, however many collars are in range.
+        await self.async_set_unique_id(f"{DOMAIN}_bluetooth")
+        self._abort_if_unique_id_configured()
+        self.context["title_placeholders"] = {"name": discovery_info.name}
+        return await self.async_step_bluetooth_confirm()
+
+    async def async_step_bluetooth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return await self.async_step_user()
+        self._set_confirm_only()
+        return self.async_show_form(step_id="bluetooth_confirm")
+
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
@@ -124,10 +162,10 @@ class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            errors = await self._sign_in(
+            user_id, errors = await self._sign_in(
                 entry.data[CONF_USERNAME], user_input[CONF_PASSWORD]
             )
-            if not errors:
+            if user_id is not None:
                 return self.async_update_reload_and_abort(
                     entry, data_updates={CONF_PASSWORD: user_input[CONF_PASSWORD]}
                 )
@@ -138,19 +176,54 @@ class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def _sign_in(self, username: str, password: str) -> dict[str, str]:
-        """Sign in once to prove the credentials. Returns the form's errors."""
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the login email or password of the same TryFi account."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            user_id, errors = await self._sign_in(
+                user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+            )
+            if user_id is not None:
+                # A different account would leave every pet's entities behind.
+                await self.async_set_unique_id(user_id)
+                if entry.unique_id is not None:
+                    self._abort_if_unique_id_mismatch(reason="wrong_account")
+                return self.async_update_reload_and_abort(
+                    entry,
+                    unique_id=user_id,
+                    title=user_input[CONF_USERNAME],
+                    data_updates={
+                        CONF_USERNAME: user_input[CONF_USERNAME],
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                    },
+                )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_RECONFIGURE_SCHEMA,
+                user_input or {CONF_USERNAME: entry.data[CONF_USERNAME]},
+            ),
+            errors=errors,
+        )
+
+    async def _sign_in(
+        self, username: str, password: str
+    ) -> tuple[str | None, dict[str, str]]:
+        """Sign in once to prove the credentials: TryFi's user id, or errors."""
         try:
-            tryfi = await self.hass.async_add_executor_job(connect, username, password)
+            client = await async_connect(self.hass, username, password)
         except TryFiAuthError:
-            return {"base": "invalid_auth"}
-        except TryFiConnectionError:
-            return {"base": "cannot_connect"}
+            return None, {"base": "invalid_auth"}
+        except TryFiError:
+            return None, {"base": "cannot_connect"}
         except Exception:
             _LOGGER.exception("Unexpected error signing in to TryFi")
-            return {"base": "unknown"}
-        tryfi.session.close()
-        return {}
+            return None, {"base": "unknown"}
+        await client.async_close()
+        return client.user_id, {}
 
 
 class OptionsFlowHandler(OptionsFlow):

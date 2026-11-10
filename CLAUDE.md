@@ -2,7 +2,9 @@
 
 A maintained fork of sbabcock23/hass-tryfi: a Home Assistant custom integration
 for TryFi dog collars. One domain, `tryfi`, in `custom_components/tryfi/`, with
-its own copy of the pytryfi library in `custom_components/tryfi/pytryfi/`.
+its own typed async TryFi client in `custom_components/tryfi/client/`. It is
+self-assessed at Home Assistant's Platinum quality scale, rule by rule in
+`quality_scale.yaml`; keep that file true when a change touches a rule.
 
 ## Non-negotiables
 
@@ -30,20 +32,24 @@ reason better than responsiveness.
 
 **Releases happen only when the maintainer asks.** Merging is not releasing.
 
-## The vendored pytryfi
+## The TryFi client
 
-Taken from disruptivepatternmaterial/pytryfi at `cc31b96`. Every import in it
-is relative, so the pytryfi 0.0.21 still sitting in site-packages on any
-install moved over from upstream (the one that reports) can never be reached.
+`client/` replaced the vendored pytryfi it was derived from (Apache 2.0;
+`client/ORIGIN.md` has the history and every change). It is aiohttp on a
+session the integration creates per account with `async_create_clientsession`
+(TryFi signs in with a cookie, so not the shared session), strictly typed, and
+raises `TryFiAuthError`, `TryFiConnectionError` or `TryFiCommandError` rather
+than swallowing anything. Nothing runs in the executor.
 
-It is not formatted, linted or type-checked here, so a diff against the pinned
-commit shows only deliberate changes. Every change carries a `hass-tryfi:`
-comment and a row in `pytryfi/VENDORED.md`, with the upstream issue it fixes.
-Keep doing both.
+Do not change the GraphQL in `client/queries.py` without an account to test it
+against: it is pytryfi's text, character for character, because that is what
+works against TryFi today, and a broken query breaks every install at once.
+`tests/test_queries.py` pins a hash of each composed query; a failure there is
+the cue to test against a real account, not to update the hash.
 
-Do not change the GraphQL queries without an account to test them against:
-they are what works against TryFi today, and a broken query breaks every
-install at once.
+Devices are removed only when TryFi stops *listing* a pet or base
+(`listed_pet_ids`, `listed_base_ids`), never because one refresh could not
+read it: a removed device takes the user's entity ids with it.
 
 ## What is settled about TryFi's data
 
@@ -99,8 +105,8 @@ Eight CI checks gate a merge. Run the first four locally before pushing.
 ```
 
 The minimum lane runs the behaviour against core 2025.1.0, the version
-`hacs.json` claims. `scripts/coverage_gate.py` enforces 95% per module; the
-vendored library is omitted from coverage and tested through `tests/test_pytryfi.py`.
+`hacs.json` claims, with pycares held below 4.9 (see the requirements file).
+`scripts/coverage_gate.py` enforces 95% per module, the client included.
 
 A refresh driven by `async_fire_time_changed` runs as a background task: wait
 with `async_block_till_done(wait_background_tasks=True)`, or the assertions race
@@ -123,6 +129,7 @@ As in willbeeching/ha-jlr-incontrol: comments explain why, usually by naming
 the upstream issue; line length 88, black, isort (black profile), ruff with
 `E F W I UP B SIM C4 RET PTH`; strict mypy spelled out in `pyproject.toml`;
 flow schemas import `probatio` as `vol` on core 2026.10+ and `voluptuous`
-before it. Tests in `tests/` drive the real vendored library against the fake
-cloud; tests in `tests/ha/` drive a running Home Assistant. Widen
+before it. Tests in `tests/` drive the real client against the fake cloud;
+tests in `tests/ha/` drive a running Home Assistant, and `test_wire.py` runs
+the client through real aiohttp. Widen
 `tests/fakes.py` rather than hand-rolling a payload per test.

@@ -6,9 +6,9 @@ import re
 import sys
 from pathlib import Path
 
-from fakes import FakeCloud
+from fakes import FakeCloud, FakeSession
 
-from custom_components.tryfi.api import connect
+from custom_components.tryfi.client import TryFiClient
 
 INTEGRATION = Path(__file__).resolve().parents[1] / "custom_components" / "tryfi"
 
@@ -29,8 +29,14 @@ def test_no_file_mentions_the_reporting_library() -> None:
     assert offenders == []
 
 
-def test_signing_in_loads_no_reporting_library(cloud: FakeCloud) -> None:
-    connect("someone@example.com", "correct-horse")
+async def test_signing_in_loads_no_reporting_library(cloud: FakeCloud) -> None:
+    client = TryFiClient(
+        FakeSession(cloud),  # type: ignore[arg-type]
+        "someone@example.com",
+        cloud.password,
+    )
+    await client.async_login()
+    await client.async_refresh()
     assert not any(name.startswith(REPORTER) for name in sys.modules)
 
 

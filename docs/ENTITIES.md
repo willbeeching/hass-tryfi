@@ -58,6 +58,9 @@ this fork keep whatever state they had, enabled included.
   (upstream #89). That is TryFi's figure.
 - **A pet or base that appears later**, a collar fitted after setup, say, gets
   its entities on the next refresh, without a reload.
+- **A pet or base removed from the account** has its device, and its entities,
+  removed on the next refresh. A pet still on the account without its collar
+  is kept, unavailable, and can be deleted from its device page.
 - **Location is where the collar last reported**, which it does on its own
   schedule.
 

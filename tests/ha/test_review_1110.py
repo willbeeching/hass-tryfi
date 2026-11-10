@@ -144,8 +144,9 @@ async def test_optional_profile_fields_cannot_hide_a_pet(
 async def test_the_same_account_cannot_be_added_twice(
     hass: HomeAssistant, entry: MockConfigEntry, loaded: FakeCloud
 ) -> None:
-    # The fixture's entry is upstream-shaped: no unique id. Setup gives it one.
-    assert entry.unique_id == "someone@example.com"
+    # The fixture's entry is upstream-shaped: no unique id. Setup gives it the
+    # account's TryFi user id.
+    assert entry.unique_id == "user-0001"
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_USER}
@@ -188,4 +189,4 @@ async def test_a_second_account_is_still_allowed(
         {"username": "other@example.com", "password": "correct-horse", "polling": 60},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["result"].unique_id == "other@example.com"
+    assert result["result"].unique_id == "user-other@example.com"

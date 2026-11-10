@@ -11,7 +11,7 @@ import pytest
 from fakes import BASE_ID, PET_ID, FakeCloud
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, EntityCategory
+from homeassistant.const import STATE_UNKNOWN, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
@@ -364,33 +364,6 @@ async def test_new_readings_arrive_on_the_next_poll(
     await _advance(hass, freezer)
     assert hass.states.get("sensor.biscuit_daily_steps").state == "5000"
     assert hass.states.get("sensor.kitchen_base").state == "Offline"
-
-
-async def test_a_pet_leaving_the_account_goes_unavailable(
-    hass: HomeAssistant, loaded: FakeCloud, freezer: FrozenDateTimeFactory
-) -> None:
-    loaded.pet_present = False
-    await _advance(hass, freezer)
-
-    for entity_id in (
-        "device_tracker.biscuit_tracker",
-        "sensor.biscuit_collar_battery_level",
-        "binary_sensor.biscuit_collar_battery_charging",
-        "light.biscuit_collar_light",
-        "select.biscuit_lost_mode",
-        "sensor.biscuit_daily_steps",
-        "sensor.biscuit_connected_to",
-    ):
-        assert hass.states.get(entity_id).state == STATE_UNAVAILABLE, entity_id
-    assert hass.states.get("sensor.kitchen_base").state == "Online"
-
-
-async def test_a_base_leaving_the_account_goes_unavailable(
-    hass: HomeAssistant, loaded: FakeCloud, freezer: FrozenDateTimeFactory
-) -> None:
-    loaded.base_missing = {"baseId"}
-    await _advance(hass, freezer)
-    assert hass.states.get("sensor.kitchen_base").state == STATE_UNAVAILABLE
 
 
 async def test_a_base_without_a_status_is_unknown(

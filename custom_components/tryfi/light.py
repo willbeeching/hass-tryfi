@@ -7,9 +7,9 @@ from typing import Any
 
 from homeassistant.components.light import ATTR_RGB_COLOR, ColorMode, LightEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .client import Pet
 from .coordinator import TryFiConfigEntry, TryFiDataUpdateCoordinator
 from .entity import TryFiPetEntity, async_add_per_pet
 
@@ -17,6 +17,9 @@ RGB = tuple[int, int, int]
 
 # TryFi's code for white, used when the collar offers no colours to match.
 _WHITE = 8
+
+# One command at a time to a collar.
+PARALLEL_UPDATES = 1
 
 
 def hex_to_rgb(hex_color: str) -> RGB:
@@ -53,50 +56,33 @@ class TryFiPetLight(TryFiPetEntity, LightEntity):
     _attr_color_mode = ColorMode.RGB
     _attr_supported_color_modes = {ColorMode.RGB}
 
-    def __init__(self, coordinator: TryFiDataUpdateCoordinator, pet: Any) -> None:
+    def __init__(self, coordinator: TryFiDataUpdateCoordinator, pet: Pet) -> None:
         super().__init__(coordinator, pet, "light", "collar_light")
         self._color_map = {
-            color.ledColorCode: hex_to_rgb(color.hexCode)
-            for color in pet.device.availableLedColors
+            color.code: hex_to_rgb(color.hex)
+            for color in pet.collar.available_led_colors
         }
 
     @property
     def is_on(self) -> bool | None:
         # None, shown as unknown, when the collar did not report its LED.
-        led_on = self.device.ledOn
-        return None if led_on is None else bool(led_on)
+        return self.collar.led_on
 
     @property
     def rgb_color(self) -> RGB | None:
-        color = self.device.ledColorHex
+        color = self.collar.led_color_hex
         return hex_to_rgb(color) if color else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         pet = self.pet
-        session = self.coordinator.tryfi.session
-        await self._run(pet.turnOnOffLed, session, True)
+        changes = [lambda: self.client.async_set_led(pet, True)]
         # Only present when the colour was changed; a brightness change, which
         # the collar cannot do anyway, arrives without it.
         if ATTR_RGB_COLOR in kwargs:
             code = find_closest_color_code(kwargs[ATTR_RGB_COLOR], self._color_map)
-            await self._run(pet.setLedColorCode, session, code)
-        await self._settle()
+            changes.append(lambda: self.client.async_set_led_color(pet, code))
+        await self._async_command(*changes)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._run(self.pet.turnOnOffLed, self.coordinator.tryfi.session, False)
-        await self._settle()
-
-    async def _run(self, command: Any, *args: Any) -> None:
-        # pytryfi reports a failed command by returning False, having already
-        # caught the exception, so this is the only way to tell the user.
-        if not await self.hass.async_add_executor_job(command, *args):
-            raise HomeAssistantError(
-                f"TryFi did not accept the command for {self.name}"
-            )
-
-    async def _settle(self) -> None:
-        # pytryfi copies the collar state TryFi returns into the pet, so the
-        # new state can be shown now rather than a poll later. The refresh then
-        # catches anything that answer left out.
-        self.async_write_ha_state()
-        await self.coordinator.async_request_refresh()
+        pet = self.pet
+        await self._async_command(lambda: self.client.async_set_led(pet, False))

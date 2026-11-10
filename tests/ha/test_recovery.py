@@ -41,9 +41,9 @@ async def test_a_lapsed_session_signs_in_again_and_carries_on(
 
     assert loaded.requests.count("login") == 2
     assert hass.states.get(BATTERY).state == "55"
-    # On a new session, since the old one may be the dead connection.
-    assert loaded.sessions[0].closed
-    assert not loaded.sessions[-1].closed
+    # Signed in afresh: the lapsed session cookie is gone first.
+    assert loaded.sessions[0].cookie_jar.cleared == 2
+    assert not loaded.sessions[0].closed
 
 
 async def test_an_outage_marks_entities_unavailable_then_recovers(

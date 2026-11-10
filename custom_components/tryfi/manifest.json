@@ -1,6 +1,11 @@
 {
   "domain": "tryfi",
   "name": "TryFi",
+  "bluetooth": [
+    {
+      "service_uuid": "57b40001-2528-d6bc-b043-b49af0ec06c1"
+    }
+  ],
   "codeowners": [
     "@willbeeching"
   ],

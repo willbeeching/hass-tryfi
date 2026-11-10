@@ -73,10 +73,10 @@ async def test_a_failed_sign_in_says_why(
 async def test_an_unexpected_error_is_logged_and_reported(
     hass: HomeAssistant, cloud: FakeCloud, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def explode(*_: object) -> None:
+    async def explode(*_: object) -> None:
         raise RuntimeError("surprise")
 
-    monkeypatch.setattr("custom_components.tryfi.config_flow.connect", explode)
+    monkeypatch.setattr("custom_components.tryfi.config_flow.async_connect", explode)
     result = await _start(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], GOOD)
     assert result["errors"] == {"base": "unknown"}
@@ -167,7 +167,7 @@ def test_polling_rate(
 async def test_unloading_closes_the_session(
     hass: HomeAssistant, entry: MockConfigEntry, loaded: FakeCloud
 ) -> None:
-    session = entry.runtime_data.tryfi.session
+    session = loaded.sessions[0]
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
     assert session.closed

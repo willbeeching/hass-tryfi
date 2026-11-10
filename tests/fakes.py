@@ -1,9 +1,9 @@
-"""A stand-in for TryFi's cloud, at the level pytryfi talks to it.
+"""A stand-in for TryFi's cloud, at the HTTP session the client is given.
 
-pytryfi makes every request through one requests.Session. Replacing that class
-with FakeSession lets the real vendored library and the real integration run
-end to end against canned answers, which is where upstream's bugs were: in what
-the integration did with what pytryfi handed it.
+The client makes every request through the aiohttp session Home Assistant
+creates for it. Handing it FakeSession instead lets the real client and the
+real integration run end to end against canned answers, which is where
+upstream's bugs were: in what was done with what TryFi sent.
 
 Every value here is made up. None of it is a real pet, collar or account.
 """
@@ -14,7 +14,7 @@ import copy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import requests
+import aiohttp
 
 PET_ID = "pet-0001"
 BASE_ID = "base-0001"
@@ -29,20 +29,22 @@ LED_COLORS = [
 
 
 class FakeResponse:
-    def __init__(self, status: int, body: Any) -> None:
-        self.status_code = status
-        self.ok = 200 <= status < 300
-        self._body = body
-        self.cookies: dict[str, str] = {}
+    """What aiohttp's response gives the client: a status and a JSON body."""
 
-    def json(self) -> Any:
+    def __init__(self, status: int, body: Any) -> None:
+        self.status = status
+        self._body = body
+
+    async def json(self, content_type: str | None = "application/json") -> Any:
         if isinstance(self._body, Exception):
             raise self._body
         return copy.deepcopy(self._body)
 
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            raise requests.HTTPError(f"{self.status_code}", response=self)
+    async def __aenter__(self) -> FakeResponse:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
 
 
 class FakeCloud:
@@ -83,6 +85,12 @@ class FakeCloud:
         self.battery = 87
         self.daily_steps = 4321
         self.requests: list[str] = []
+        # Emails that sign in to the same account, by the account's user id.
+        self.user_ids = {
+            "someone@example.com": "user-0001",
+            "Someone@Example.com": "user-0001",
+            "renamed@example.com": "user-0001",
+        }
         self.mutations: list[dict[str, Any]] = []
         self.sessions: list[FakeSession] = []
 
@@ -229,9 +237,11 @@ class FakeCloud:
         mode = self.login_mode
         if mode == "flaky":
             self.login_mode = "ok"
-            raise requests.ConnectionError("connection reset")
+            raise aiohttp.ClientConnectionError("connection reset")
+        if mode == "timeout":
+            raise TimeoutError
         if mode == "unreachable":
-            raise requests.ConnectionError("no route to host")
+            raise aiohttp.ClientConnectionError("no route to host")
         if mode == "error_500":
             return FakeResponse(500, {})
         if mode == "reject_401" or (
@@ -240,18 +250,20 @@ class FakeCloud:
             return FakeResponse(401, {})
         if mode == "reject_body":
             return FakeResponse(200, {"error": {"message": "Invalid credentials"}})
-        return FakeResponse(200, {"userId": "user-0001", "sessionId": "session-0001"})
+        # TryFi's user id: the account, whatever email signs in to it.
+        user_id = self.user_ids.get(data.get("email", ""), f"user-{data.get('email')}")
+        return FakeResponse(200, {"userId": user_id, "sessionId": "session-0001"})
 
     def query(self, text: str) -> FakeResponse:
         if self.graphql_down:
-            raise requests.ConnectionError("graphql unreachable")
+            raise aiohttp.ClientConnectionError("graphql unreachable")
         if self.graphql_errors:
             body = {"errors": [{"message": "Not authenticated"}], "data": None}
             return FakeResponse(200, body)
         if "ongoingActivity" in text:
             self.requests.append("location")
             if self.location_fails:
-                raise requests.ConnectionError("location query failed")
+                raise aiohttp.ClientConnectionError("location query failed")
             return FakeResponse(
                 200, {"data": {"pet": {"ongoingActivity": self.location()}}}
             )
@@ -261,22 +273,14 @@ class FakeCloud:
         if "restSummaryFeed" in text:
             self.requests.append("rest")
             return FakeResponse(200, {"data": {"pet": self.rest()}})
-        if "UserFullDetails" in text.split("fragment")[0]:
-            self.requests.append("households")
-            body = {"currentUser": {"userHouseholds": self.households()}}
-            return FakeResponse(200, {"data": body})
-        self.requests.append("user")
-        user = {
-            "email": "someone@example.com",
-            "firstName": "Sam",
-            "lastName": "Example",
-            "phoneNumber": None,
-        }
-        return FakeResponse(200, {"data": {"currentUser": user}})
+        assert "UserFullDetails" in text.split("fragment")[0], text[:80]
+        self.requests.append("households")
+        body = {"currentUser": {"userHouseholds": self.households()}}
+        return FakeResponse(200, {"data": body})
 
     def mutate(self, body: dict[str, Any]) -> FakeResponse:
         if self.mutations_fail:
-            raise requests.ConnectionError("mutation failed")
+            raise aiohttp.ClientConnectionError("mutation failed")
         variables = body["variables"]
         self.mutations.append(variables)
         if self.mutations_rejected:
@@ -302,41 +306,48 @@ class FakeCloud:
         return FakeResponse(200, {"data": {key: answer}})
 
 
-class FakeSession:
-    """Takes requests.Session's place. Bound to a FakeCloud by make_session."""
-
-    cloud: FakeCloud
-
+class FakeCookieJar:
     def __init__(self) -> None:
-        self.headers: dict[str, str] = {}
-        self.closed = False
-        self.cloud.sessions.append(self)
+        self.cleared = 0
 
-    def post(
+    def clear(self) -> None:
+        self.cleared += 1
+
+
+class FakeSession:
+    """Takes the place of the aiohttp session Home Assistant would create."""
+
+    def __init__(self, cloud: FakeCloud) -> None:
+        self.cloud = cloud
+        self.cookie_jar = FakeCookieJar()
+        self.closed = False
+        cloud.sessions.append(self)
+
+    def request(
         self,
+        method: str,
         url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: aiohttp.ClientTimeout | None = None,
+        params: dict[str, str] | None = None,
         data: dict[str, str] | None = None,
         json: dict[str, Any] | None = None,
-        timeout: float | None = None,
     ) -> FakeResponse:
         # Every request must carry a timeout: without one a dead connection
         # hangs the poll for ever, which is what upstream did.
-        assert timeout, "request sent without a timeout"
-        if url.endswith("/auth/login"):
-            return self.cloud.login(data or {})
+        assert timeout is not None and timeout.total, "request sent without a timeout"
+        assert not self.closed, "request on a closed session"
+        if url == "https://api.tryfi.com/auth/login":
+            assert method == "POST" and data is not None
+            return self.cloud.login(data)
         assert url == "https://api.tryfi.com/graphql", url
-        return self.cloud.mutate(json or {})
+        assert headers == {"content-type": "application/json"}
+        if method == "GET":
+            assert params is not None
+            return self.cloud.query(params["query"])
+        assert method == "POST" and json is not None
+        return self.cloud.mutate(json)
 
-    def get(
-        self, url: str, params: dict[str, str], timeout: float | None = None
-    ) -> FakeResponse:
-        assert timeout, "request sent without a timeout"
-        assert url == "https://api.tryfi.com/graphql", url
-        return self.cloud.query(params["query"])
-
-    def close(self) -> None:
+    async def close(self) -> None:
         self.closed = True
-
-
-def make_session(cloud: FakeCloud) -> type[FakeSession]:
-    return type("BoundFakeSession", (FakeSession,), {"cloud": cloud})

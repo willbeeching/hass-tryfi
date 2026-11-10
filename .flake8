@@ -4,5 +4,6 @@ max-line-length = 88
 # E203 and W503 disagree with Black by design; both are on Black's own list of
 # checks to disable.
 extend-ignore = E203, W503
-# The vendored library stays as upstream wrote it; see pyproject.toml.
-exclude = .git,__pycache__,.venv*,custom_components/tryfi/pytryfi
+exclude = .git,__pycache__,.venv*
+# TryFi's GraphQL is kept character for character; see client/queries.py.
+per-file-ignores = custom_components/tryfi/client/queries.py:E501
