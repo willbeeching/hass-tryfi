@@ -65,4 +65,4 @@ async def test_requests_on_the_wire(
         "input": {"moduleId": "module-0001", "mode": "LOST_DOG"}
     }
     assert client.pets[0].collar.is_lost is True
-    await client.async_close()
+    client.detach()

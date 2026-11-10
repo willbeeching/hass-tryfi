@@ -38,6 +38,8 @@ same JSON post with the same variables. Only api.tryfi.com is ever contacted.
 | `place: null`, a walk with no positions yet, `weight: null`, no connection state | Each of these failed the pet or its location. |
 | A rest period with no summary is unknown, not 0 | A false 0 is a reset to Home Assistant's statistics, which then counted the same minutes twice. |
 | Connection detail kept structured | Which base, whose phone, what signal (#60). |
-| The pets and bases the account lists are recorded | So a device is removed only when the account no longer lists it, never because one refresh could not read it. |
+| The pets and bases the account lists are recorded, and whether the listing was complete | So a device is removed only when a complete listing leaves it out, never because one refresh could not read it or TryFi answered with errors. |
+| Every object read through a check that it is one | TryFi can send null for any field; `.get()` on a null failed setup. `tests/test_client_nulls.py` nulls every field of every answer in turn. |
+| The session is detached, never closed | On a session Home Assistant created, `close()` only logs a warning. |
 
 Issue numbers are on [sbabcock23/hass-tryfi](https://github.com/sbabcock23/hass-tryfi/issues).

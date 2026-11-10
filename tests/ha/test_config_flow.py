@@ -40,7 +40,7 @@ async def test_a_good_sign_in_creates_the_entry(
     assert result["title"] == "someone@example.com"
     assert result["data"] == GOOD
     # The session opened to check the password is not left behind.
-    assert cloud.sessions[0].closed
+    assert cloud.sessions[0].detached
 
 
 @pytest.mark.parametrize(
@@ -76,7 +76,7 @@ async def test_an_unexpected_error_is_logged_and_reported(
     async def explode(*_: object) -> None:
         raise RuntimeError("surprise")
 
-    monkeypatch.setattr("custom_components.tryfi.config_flow.async_connect", explode)
+    monkeypatch.setattr("custom_components.tryfi.config_flow.async_check", explode)
     result = await _start(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], GOOD)
     assert result["errors"] == {"base": "unknown"}
@@ -170,4 +170,4 @@ async def test_unloading_closes_the_session(
     session = loaded.sessions[0]
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
-    assert session.closed
+    assert session.detached

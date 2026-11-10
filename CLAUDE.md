@@ -47,9 +47,17 @@ works against TryFi today, and a broken query breaks every install at once.
 `tests/test_queries.py` pins a hash of each composed query; a failure there is
 the cue to test against a real account, not to update the hash.
 
-Devices are removed only when TryFi stops *listing* a pet or base
-(`listed_pet_ids`, `listed_base_ids`), never because one refresh could not
-read it: a removed device takes the user's entity ids with it.
+Devices are removed only when a *complete* listing (`listing_complete`) leaves
+a pet or base out of `listed_pet_ids` / `listed_base_ids`, never because one
+refresh could not read it or answered with errors: a removed device takes the
+user's entity ids with it.
+
+TryFi can send null for any field. Read objects through `models.obj` / `dig`;
+`tests/test_client_nulls.py` nulls every field of every answer in turn, and a
+new field read without care fails it.
+
+Sessions from Home Assistant are detached, never `close()`d: on them close()
+is a wrapper that only warns. `FakeSession.close()` fails the test.
 
 ## What is settled about TryFi's data
 

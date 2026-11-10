@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Iterable
 
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -62,18 +63,41 @@ def _async_add_as_found[T](
     build: Callable[[T], Iterable[Entity]],
 ) -> None:
     coordinator = entry.runtime_data
-    known: set[str] = set()
+    registry = er.async_get(coordinator.hass)
+    # Per pet or base, the unique ids of the entities this platform made.
+    added: dict[str, list[str]] = {}
 
     @callback
     def add_new() -> None:
-        # A device removed as stale takes its entities with it, so if it comes
-        # back it needs them made again.
-        known.difference_update(coordinator.removed_ids)
-        new = [item for item in items(coordinator.data) if key(item) not in known]
+        # Forget anything whose entities are gone, however they went: removed
+        # with a stale device, or deleted by hand. If it comes back it needs
+        # them made again (review of ad0329c). Checked per platform, on this
+        # platform's own entities: the first platform to re-add a pet brings
+        # its device straight back, so the device says nothing to the rest.
+        if added:
+            registered = {
+                registered.unique_id
+                for registered in er.async_entries_for_config_entry(
+                    registry, entry.entry_id
+                )
+            }
+            for gone in [
+                item_id
+                for item_id, unique_ids in added.items()
+                if not registered.intersection(unique_ids)
+            ]:
+                del added[gone]
+        new = [item for item in items(coordinator.data) if key(item) not in added]
         if not new:
             return
-        known.update(key(item) for item in new)
-        async_add_entities([entity for item in new for entity in build(item)])
+        entities: list[Entity] = []
+        for item in new:
+            built = list(build(item))
+            added[key(item)] = [
+                entity.unique_id for entity in built if entity.unique_id
+            ]
+            entities.extend(built)
+        async_add_entities(entities)
 
     add_new()
     entry.async_on_unload(coordinator.async_add_listener(add_new))

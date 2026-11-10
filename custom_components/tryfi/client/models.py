@@ -23,6 +23,26 @@ ACTIVITY_WALK = "OngoingWalk"
 JSON = dict[str, Any]
 
 
+def obj(value: Any) -> JSON:
+    """The value as an object, or TypeError: TryFi sends null for any field.
+
+    Reading .get() off a null raised AttributeError, which nothing expected,
+    and `info: null` failed the whole integration at setup.
+    """
+    if not isinstance(value, dict):
+        raise TypeError(f"expected an object, got {type(value).__name__}")
+    return value
+
+
+def dig(value: Any, *keys: str) -> Any:
+    """value[k1][k2]..., or None as soon as a level is not an object."""
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
 def parse_time(value: Any) -> datetime | None:
     if not value:
         return None
@@ -106,24 +126,25 @@ class Collar:
         self.module_id = device["moduleId"]
 
     def _read_info(self, device: JSON) -> None:
-        info = device["info"]
+        info = obj(device["info"])
         self.build_id = info.get("buildId")
         battery = info.get("batteryPercent")
         self.battery_percent = None if battery is None else int(battery)
         self.charging = bool(info.get("isCharging", False))
 
     def _read_operation(self, device: JSON) -> None:
-        params = device["operationParams"]
+        params = obj(device["operationParams"])
         self.mode = params.get("mode")
         self.led_enabled = bool(params.get("ledEnabled"))
         self.led_off_at = parse_time(params.get("ledOffAt"))
 
     def _read_led_color(self, device: JSON) -> None:
-        self.led_color_name = device["ledColor"]["name"]
-        self.led_color_hex = device["ledColor"]["hexCode"]
+        color = obj(device["ledColor"])
+        self.led_color_name = color["name"]
+        self.led_color_hex = color["hexCode"]
 
     def _read_connection(self, device: JSON) -> None:
-        state = device["lastConnectionState"]
+        state = obj(device["lastConnectionState"])
         self.connection_type = state["__typename"]
         # The detail behind the type, which upstream flattened into one string
         # or dropped: which base, whose phone, what signal (#60).
@@ -177,18 +198,17 @@ class Pet:
             raise NoCollar(profile.get("name"))
         collar = Collar(device_id=device["id"])
         collar.update(device)
-        breed = profile.get("breed")
-        photos = profile.get("photos") or {}
-        photo = ((photos.get("first") or {}).get("image") or {}).get("fullSize")
+        photo = dig(profile, "photos", "first", "image", "fullSize")
         return cls(
-            pet_id=profile["id"],
+            pet_id=str(profile["id"]),
             collar=collar,
             name=profile.get("name"),
-            breed=breed.get("name") if isinstance(breed, dict) else None,
+            breed=dig(profile, "breed", "name"),
             photo_url=photo or None,
         )
 
     def take_location(self, activity: JSON) -> None:
+        activity = obj(activity)
         self.activity_type = activity["__typename"]
         self.area_name = activity.get("areaName")
         try:
@@ -219,6 +239,7 @@ class Pet:
     def take_activity(self, summary: JSON) -> None:
         # Distance in metres. Each period on its own, so one TryFi leaves out
         # does not cost the other two.
+        summary = obj(summary)
         for period in PERIODS:
             stat = summary.get(f"{period}Stat")
             if not stat:
@@ -285,7 +306,9 @@ class Base:
 
     @classmethod
     def from_json(cls, base: JSON) -> Base:
-        position = base.get("position") or {}
+        base = obj(base)
+        position = base.get("position")
+        position = position if isinstance(position, dict) else {}
         return cls(
             base_id=base["baseId"],
             name=base.get("name") or base["baseId"],

@@ -59,9 +59,6 @@ class TryFiDataUpdateCoordinator(DataUpdateCoordinator[TryFiClient]):
             update_interval=timedelta(seconds=polling_rate(entry)),
         )
         self.client = client
-        # Pet and base ids whose devices the last refresh removed, so the
-        # platforms will add them afresh if they ever come back.
-        self.removed_ids: set[str] = set()
 
     async def _async_update_data(self) -> TryFiClient:
         try:
@@ -69,7 +66,7 @@ class TryFiDataUpdateCoordinator(DataUpdateCoordinator[TryFiClient]):
         except TryFiError as first:
             LOGGER.debug("TryFi refresh failed (%s); signing in again", first)
             await self._async_sign_in_and_retry()
-        self.removed_ids = self._async_remove_stale_devices()
+        self._async_remove_stale_devices()
         return self.client
 
     async def _async_sign_in_and_retry(self) -> None:
@@ -96,27 +93,27 @@ class TryFiDataUpdateCoordinator(DataUpdateCoordinator[TryFiClient]):
                 translation_placeholders={"error": str(err)},
             ) from err
 
-    def _async_remove_stale_devices(self) -> set[str]:
+    def _async_remove_stale_devices(self) -> None:
         """Remove the device of any pet or base the account no longer lists.
 
-        Only on a refresh that succeeded, and only for things absent from what
-        TryFi listed: a pet it listed but could not read, or one without a
-        collar, stays (and can be deleted by hand). An answer listing nothing
-        at all is not trusted to mean the account is empty.
+        Only on a refresh whose listing was complete, and only for things
+        absent from it. A removed device takes the user's entity ids with it,
+        so anything short of TryFi plainly listing the account is no grounds:
+        not an answer with errors beside it (review of ad0329c: one partial
+        answer deleted every pet), not one listing nothing at all, and not a
+        pet listed but unreadable or without its collar, which can be deleted
+        by hand.
         """
         listed = self.client.listed_pet_ids | self.client.listed_base_ids
-        if not listed:
-            return set()
+        if not self.client.listing_complete or not listed:
+            return
         registry = dr.async_get(self.hass)
-        removed: set[str] = set()
         for device in dr.async_entries_for_config_entry(
             registry, self.config_entry.entry_id
         ):
             ours = {value for domain, value in device.identifiers if domain == DOMAIN}
             if ours and not ours & listed:
                 LOGGER.info("Removing %s: no longer on the TryFi account", device.name)
-                registry.async_update_device(
-                    device.id, remove_config_entry_id=self.config_entry.entry_id
-                )
-                removed |= ours
-        return removed
+                # Not async_update_device(remove_config_entry_id=): deprecated
+                # from 2026.10. A TryFi device belongs to this entry alone.
+                registry.async_remove_device(device.id)

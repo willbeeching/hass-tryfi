@@ -71,10 +71,19 @@ async def test_a_pet_leaving_the_account_is_removed_and_can_return(
 async def test_a_base_leaving_the_account_is_removed(
     hass: HomeAssistant, loaded: FakeCloud, freezer: FrozenDateTimeFactory
 ) -> None:
-    loaded.base_missing = {"baseId"}
+    loaded.base_present = False
     await _poll(hass, freezer)
     assert _device(hass, BASE_ID) is None
     assert _device(hass, PET_ID) is not None
+
+
+async def test_a_base_described_without_an_id_is_not_taken_as_gone(
+    hass: HomeAssistant, loaded: FakeCloud, freezer: FrozenDateTimeFactory
+) -> None:
+    # Unreadable is not absent: the listing is incomplete, so nothing goes.
+    loaded.base_missing = {"baseId"}
+    await _poll(hass, freezer)
+    assert _device(hass, BASE_ID) is not None
 
 
 async def test_a_pet_whose_collar_comes_off_stays_until_deleted(
@@ -100,7 +109,7 @@ async def test_an_empty_account_answer_removes_nothing(
     hass: HomeAssistant, loaded: FakeCloud, freezer: FrozenDateTimeFactory
 ) -> None:
     loaded.pet_present = False
-    loaded.base_missing = {"baseId"}
+    loaded.base_present = False
     await _poll(hass, freezer)
     assert _device(hass, PET_ID) is not None
     assert _device(hass, BASE_ID) is not None

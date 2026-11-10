@@ -137,9 +137,12 @@ rules:
   stale-devices:
     status: done
     comment: >-
-      A device is removed when TryFi stops listing its pet or base. A pet
-      still listed but unreadable or without its collar is kept, and can be
-      deleted by hand. An answer listing nothing removes nothing.
+      A device is removed when TryFi stops listing its pet or base, and only
+      on a complete listing: an answer with errors beside its data, a
+      household whose pets or bases came back null, an unreadable entry, or
+      an answer listing nothing removes nothing. A pet still listed but
+      without its collar is kept and can be deleted by hand; one deleted by
+      hand gets its entities back if it returns.
 
   # ---------------------------------------------------------------- platinum
   async-dependency:
@@ -150,7 +153,10 @@ rules:
     comment: >-
       The session is passed in. It is the account's own, made with
       async_create_clientsession, because TryFi signs in with a cookie and the
-      shared session's cookie jar belongs to every integration.
+      shared session's cookie jar belongs to every integration. It is
+      detached, not closed (close() on these sessions only warns): on unload,
+      on a failed setup, and after every sign-in check in the flows, whose
+      sessions are made without auto-cleanup.
   strict-typing:
     status: done
     comment: >-

@@ -67,6 +67,9 @@ class FakeCloud:
         self.location_mode = "rest"
         self.location_fails = False
         self.graphql_errors = False
+        # A households answer with an error beside partial data: the
+        # household's pets come back null while its bases are readable.
+        self.households_partial = False
         # The collar's lastConnectionState __typename, or None for no state.
         self.connection: str | None = "ConnectedToCellular"
         # Keys deleted from the collar's description, e.g. "operationParams".
@@ -77,6 +80,7 @@ class FakeCloud:
         self.extra_pets: list[dict[str, Any]] = []
         self.has_rest_stats = True
         self.pet_present = True
+        self.base_present = True
         self.base_online = True
         self.led_enabled = False
         self.led_code = 8
@@ -169,7 +173,8 @@ class FakeCloud:
         }
         for key in self.base_missing:
             base.pop(key, None)
-        return [{"household": {"pets": pets, "bases": [base]}}]
+        bases = [base] if self.base_present else []
+        return [{"household": {"pets": pets, "bases": bases}}]
 
     def location(self) -> dict[str, Any]:
         if not self.has_location:
@@ -254,6 +259,16 @@ class FakeCloud:
         user_id = self.user_ids.get(data.get("email", ""), f"user-{data.get('email')}")
         return FakeResponse(200, {"userId": user_id, "sessionId": "session-0001"})
 
+    def households_answer(self) -> dict[str, Any]:
+        households = self.households()
+        if self.households_partial:
+            households[0]["household"]["pets"] = None
+            return {
+                "data": {"currentUser": {"userHouseholds": households}},
+                "errors": [{"message": "Could not resolve pets"}],
+            }
+        return {"data": {"currentUser": {"userHouseholds": households}}}
+
     def query(self, text: str) -> FakeResponse:
         if self.graphql_down:
             raise aiohttp.ClientConnectionError("graphql unreachable")
@@ -275,8 +290,7 @@ class FakeCloud:
             return FakeResponse(200, {"data": {"pet": self.rest()}})
         assert "UserFullDetails" in text.split("fragment")[0], text[:80]
         self.requests.append("households")
-        body = {"currentUser": {"userHouseholds": self.households()}}
-        return FakeResponse(200, {"data": body})
+        return FakeResponse(200, self.households_answer())
 
     def mutate(self, body: dict[str, Any]) -> FakeResponse:
         if self.mutations_fail:
@@ -321,6 +335,7 @@ class FakeSession:
         self.cloud = cloud
         self.cookie_jar = FakeCookieJar()
         self.closed = False
+        self.detached = False
         cloud.sessions.append(self)
 
     def request(
@@ -349,5 +364,10 @@ class FakeSession:
         assert method == "POST" and json is not None
         return self.cloud.mutate(json)
 
+    def detach(self) -> None:
+        self.detached = self.closed = True
+
     async def close(self) -> None:
-        self.closed = True
+        # Home Assistant replaces close() on the sessions it creates with a
+        # wrapper that only warns, leaving the session open. Detach instead.
+        raise AssertionError("close() on a Home Assistant session: detach it")

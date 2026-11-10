@@ -412,7 +412,7 @@ async def test_a_command_to_a_collar_without_a_module(cloud: FakeCloud) -> None:
     assert cloud.mutations == []
 
 
-async def test_closing_closes_the_session(cloud: FakeCloud) -> None:
+async def test_detaching_lets_go_of_the_session(cloud: FakeCloud) -> None:
     client = await _signed_in(cloud)
-    await client.async_close()
-    assert cloud.sessions[0].closed
+    client.detach()
+    assert cloud.sessions[0].detached

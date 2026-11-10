@@ -8,7 +8,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 
 from .api import TryFiAuthError, TryFiError, async_connect
-from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN, PLATFORMS
+from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN, PLATFORMS, account_id
 from .coordinator import TryFiConfigEntry, TryFiDataUpdateCoordinator
 
 
@@ -47,7 +47,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: TryFiConfigEntry) -> boo
 async def async_unload_entry(hass: HomeAssistant, entry: TryFiConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        await entry.runtime_data.client.async_close()
+        # Home Assistant detaches it on unload too; doing it here does not
+        # depend on the session having been made inside setup.
+        entry.runtime_data.client.detach()
     return unloaded
 
 
@@ -71,13 +73,17 @@ async def async_remove_config_entry_device(
 def _async_adopt_unique_id(
     hass: HomeAssistant, entry: TryFiConfigEntry, user_id: str | None
 ) -> None:
-    """Give an entry made by upstream, which set none, the account's user id.
+    """Give an entry the account's TryFi user id as its unique id.
 
     So the config flow can refuse a second entry for the same account. Left
     alone if another entry already holds it, which only a duplicate made
     before this fork could.
     """
-    if entry.unique_id is not None or user_id is None:
+    if user_id is None or entry.unique_id == user_id:
+        return
+    # None for an entry made by upstream; the login email for one given an id
+    # by 2b0fb15, before the id became TryFi's user id. Anything else is left.
+    if entry.unique_id not in (None, account_id(entry.data[CONF_USERNAME])):
         return
     if hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, user_id):
         return

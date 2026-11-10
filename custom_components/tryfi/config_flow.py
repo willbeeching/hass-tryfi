@@ -32,7 +32,7 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.helpers.service_info.bluetooth import BluetoothServiceInfo
 
-from .api import TryFiAuthError, TryFiError, async_connect
+from .api import TryFiAuthError, TryFiError, async_check
 from .const import (
     CONF_PASSWORD,
     CONF_POLLING_RATE,
@@ -214,7 +214,7 @@ class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> tuple[str | None, dict[str, str]]:
         """Sign in once to prove the credentials: TryFi's user id, or errors."""
         try:
-            client = await async_connect(self.hass, username, password)
+            user_id = await async_check(self.hass, username, password)
         except TryFiAuthError:
             return None, {"base": "invalid_auth"}
         except TryFiError:
@@ -222,8 +222,7 @@ class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
         except Exception:
             _LOGGER.exception("Unexpected error signing in to TryFi")
             return None, {"base": "unknown"}
-        await client.async_close()
-        return client.user_id, {}
+        return user_id, {}
 
 
 class OptionsFlowHandler(OptionsFlow):

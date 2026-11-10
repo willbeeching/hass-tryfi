@@ -20,7 +20,7 @@ from .errors import (
     TryFiConnectionError,
     TryFiError,
 )
-from .models import JSON, MODE_LOST, MODE_NORMAL, Base, NoCollar, Pet
+from .models import JSON, MODE_LOST, MODE_NORMAL, Base, NoCollar, Pet, dig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +59,10 @@ class TryFiClient:
         # these has left the account; something merely unreadable has not.
         self.listed_pet_ids: set[str] = set()
         self.listed_base_ids: set[str] = set()
+        # Whether the last refresh's listing can be trusted as the whole
+        # account: no error beside the data, and every household's pets and
+        # bases present as lists. Devices are removed only on a complete one.
+        self.listing_complete = False
 
     # ------------------------------------------------------------- session
     async def async_login(self) -> None:
@@ -80,8 +84,13 @@ class TryFiClient:
             raise TryFiConnectionError("TryFi's sign-in answer had no user id")
         self.user_id = str(user_id)
 
-    async def async_close(self) -> None:
-        await self._session.close()
+    def detach(self) -> None:
+        """Let go of the session.
+
+        Not close(): on a session Home Assistant created, close() is replaced
+        by a wrapper that only logs a warning, and the session stays open.
+        """
+        self._session.detach()
 
     # ------------------------------------------------------------- reading
     async def async_refresh(self) -> None:
@@ -93,25 +102,36 @@ class TryFiClient:
         for one pet keeps that pet's last readings, and cannot hide the
         others.
         """
-        data = await self._graphql(queries.households())
-        households = data["currentUser"]["userHouseholds"] or []
+        data, complete = await self._query(queries.households())
+        households = dig(data, "currentUser", "userHouseholds")
+        if not isinstance(households, list):
+            raise TryFiError("TryFi's answer listed no households")
         previous = {pet.pet_id: pet for pet in self.pets}
         pets: list[Pet] = []
         bases: list[Base] = []
         listed_pets: set[str] = set()
         listed_bases: set[str] = set()
         for house in households:
-            household = (house or {}).get("household") or {}
-            for profile in household.get("pets") or []:
+            household = dig(house, "household")
+            house_pets = dig(household, "pets")
+            house_bases = dig(household, "bases")
+            # null in place of a list is TryFi failing to say, not saying none.
+            if not isinstance(house_pets, list) or not isinstance(house_bases, list):
+                complete = False
+            for profile in house_pets if isinstance(house_pets, list) else []:
+                if not isinstance(profile, dict):
+                    complete = False
+                    continue
                 if profile.get("id"):
-                    listed_pets.add(profile["id"])
+                    listed_pets.add(str(profile["id"]))
                 pet = await self._read_pet(profile, previous)
                 if pet is not None:
                     pets.append(pet)
-            for raw in household.get("bases") or []:
+            for raw in house_bases if isinstance(house_bases, list) else []:
                 try:
                     base = Base.from_json(raw)
                 except (KeyError, TypeError) as err:
+                    complete = False
                     LOGGER.warning(
                         "Skipping a base TryFi described without an id: %r", err
                     )
@@ -120,6 +140,7 @@ class TryFiClient:
                 bases.append(base)
         self.pets, self.bases = pets, bases
         self.listed_pet_ids, self.listed_base_ids = listed_pets, listed_bases
+        self.listing_complete = complete
 
     async def _read_pet(self, profile: JSON, previous: dict[str, Pet]) -> Pet | None:
         try:
@@ -198,6 +219,15 @@ class TryFiClient:
 
     # ------------------------------------------------------------- transport
     async def _graphql(self, query: str) -> JSON:
+        data, _ = await self._query(query)
+        return data
+
+    async def _query(self, query: str) -> tuple[JSON, bool]:
+        """TryFi's data, and whether it came without errors.
+
+        GraphQL can answer with data and errors together, the errored fields
+        null. The data is still used; the flag says it is not the whole story.
+        """
         body = await self._request("GET", GRAPHQL_URL, params={"query": query})
         if not isinstance(body, dict):
             raise TryFiError("TryFi's answer was not an object")
@@ -206,7 +236,7 @@ class TryFiClient:
             raise TryFiError(f"TryFi returned an error: {_messages(body)}")
         if not isinstance(data, dict):
             raise TryFiError("TryFi's answer had no data")
-        return data
+        return data, not body.get("errors")
 
     async def _mutate(self, query: str, variables: JSON) -> JSON:
         body = await self._request(
