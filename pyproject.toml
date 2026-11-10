@@ -84,3 +84,11 @@ no_implicit_reexport = false
 [[tool.mypy.overrides]]
 module = "homeassistant.components.binary_sensor"
 no_implicit_reexport = false
+
+# And light, on 2026.10: ColorMode and ATTR_RGB_COLOR are re-exported from the
+# package with no __all__ (2026.11 declares them). Importing them from
+# light/const.py instead is not an option while 2025.1 is supported — neither
+# is defined there yet — so only this package is read through.
+[[tool.mypy.overrides]]
+module = "homeassistant.components.light"
+no_implicit_reexport = false

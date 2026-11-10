@@ -1,14 +1,73 @@
-"""Shared base for the entities that belong to a pet's collar."""
+"""Shared base for collar entities, and adding them as pets and bases appear."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from typing import Any
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import TryFiDataUpdateCoordinator
+from .coordinator import TryFiConfigEntry, TryFiDataUpdateCoordinator
+
+
+@callback
+def async_add_per_pet(
+    entry: TryFiConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    build: Callable[[Any], Iterable[Entity]],
+) -> None:
+    """Add a pet's entities now, and for any pet that turns up on a refresh.
+
+    A pet can be missing at setup and arrive later: a collar fitted after the
+    integration was added, or a first read that failed. Enumerating only at
+    setup left such a pet with no entities until a reload.
+    """
+    _async_add_as_found(
+        entry, async_add_entities, lambda data: data.pets, lambda pet: pet.petId, build
+    )
+
+
+@callback
+def async_add_per_base(
+    entry: TryFiConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    build: Callable[[Any], Iterable[Entity]],
+) -> None:
+    """The same, for charging bases."""
+    _async_add_as_found(
+        entry,
+        async_add_entities,
+        lambda data: data.bases,
+        lambda base: base.baseId,
+        build,
+    )
+
+
+def _async_add_as_found(
+    entry: TryFiConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    items: Callable[[Any], Iterable[Any]],
+    key: Callable[[Any], str],
+    build: Callable[[Any], Iterable[Entity]],
+) -> None:
+    coordinator = entry.runtime_data
+    known: set[str] = set()
+
+    @callback
+    def add_new() -> None:
+        new = [item for item in items(coordinator.data) if key(item) not in known]
+        if not new:
+            return
+        known.update(key(item) for item in new)
+        async_add_entities([entity for item in new for entity in build(item)])
+
+    add_new()
+    entry.async_on_unload(coordinator.async_add_listener(add_new))
 
 
 class TryFiPetEntity(CoordinatorEntity[TryFiDataUpdateCoordinator]):

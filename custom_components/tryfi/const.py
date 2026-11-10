@@ -19,6 +19,12 @@ CONF_USERNAME: Final = "username"
 CONF_PASSWORD: Final = "password"
 CONF_POLLING_RATE: Final = "polling"
 
+
+def account_id(username: str) -> str:
+    """The config entry's unique id: the sign-in email, case and spaces aside."""
+    return username.strip().lower()
+
+
 # Upstream defaulted to 10 seconds, which is six full refreshes a minute against
 # TryFi's cloud: a pet list, then a location, activity and rest query per pet.
 # The collar itself reports far less often than that, so a faster poll mostly

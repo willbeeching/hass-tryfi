@@ -39,6 +39,7 @@ from .const import (
     DEFAULT_POLLING_RATE,
     DOMAIN,
     MIN_POLLING_RATE,
+    account_id,
 )
 from .coordinator import polling_rate
 
@@ -82,6 +83,16 @@ class TryFiConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            # One entry per account: a second polls TryFi for the same pets and
+            # its entities collide with the first's unique ids. Entries made by
+            # upstream have no unique id until they load here, so they are
+            # matched on their email as well.
+            unique_id = account_id(user_input[CONF_USERNAME])
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_configured()
+            for existing in self._async_current_entries(include_ignore=False):
+                if account_id(existing.data.get(CONF_USERNAME, "")) == unique_id:
+                    return self.async_abort(reason="already_configured")
             errors = await self._sign_in(
                 user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
             )

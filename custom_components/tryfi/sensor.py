@@ -19,7 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SENSOR_STATS_BY_TIME, SENSOR_STATS_BY_TYPE
 from .coordinator import TryFiConfigEntry, TryFiDataUpdateCoordinator
-from .entity import TryFiPetEntity
+from .entity import TryFiPetEntity, async_add_per_base, async_add_per_pet
 
 
 @dataclass(frozen=True)
@@ -62,27 +62,26 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SensorEntity] = []
-    for pet in coordinator.data.pets:
-        entities.append(TryFiBatterySensor(coordinator, pet))
-        entities.extend(
-            PetStatsSensor(coordinator, pet, stat_type, stat_time)
-            for stat_type in SENSOR_STATS_BY_TYPE
-            for stat_time in SENSOR_STATS_BY_TIME
-        )
-        entities.extend(
-            [
-                PetActivitySensor(coordinator, pet),
-                PetPlaceSensor(coordinator, pet, "Current Place Name"),
-                PetPlaceSensor(coordinator, pet, "Current Place Address"),
-                PetConnectionSensor(coordinator, pet),
-                PetSignalSensor(coordinator, pet),
-            ]
-        )
-    entities.extend(
-        TryFiBaseSensor(coordinator, base) for base in coordinator.data.bases
+
+    def per_pet(pet: Any) -> list[SensorEntity]:
+        return [
+            TryFiBatterySensor(coordinator, pet),
+            *(
+                PetStatsSensor(coordinator, pet, stat_type, stat_time)
+                for stat_type in SENSOR_STATS_BY_TYPE
+                for stat_time in SENSOR_STATS_BY_TIME
+            ),
+            PetActivitySensor(coordinator, pet),
+            PetPlaceSensor(coordinator, pet, "Current Place Name"),
+            PetPlaceSensor(coordinator, pet, "Current Place Address"),
+            PetConnectionSensor(coordinator, pet),
+            PetSignalSensor(coordinator, pet),
+        ]
+
+    async_add_per_pet(entry, async_add_entities, per_pet)
+    async_add_per_base(
+        entry, async_add_entities, lambda base: [TryFiBaseSensor(coordinator, base)]
     )
-    async_add_entities(entities)
 
 
 def _slug(label: str) -> str:

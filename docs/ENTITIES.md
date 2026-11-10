@@ -50,9 +50,14 @@ this fork keep whatever state they had, enabled included.
 - **Distance can read 0** while steps climb into the thousands. That is the
   figure TryFi returns (seen on real collars, a cat's and a dog's), not a fault
   here.
-- **Daily sleep can read 0 for part of the day.** TryFi's daily rest summary
-  sometimes comes back empty for hours while the weekly one has data (upstream
-  #89). Again TryFi's figure.
+- **Sleep and nap read unknown** when TryFi sends no rest summary for the
+  period, rather than 0: a false 0 would make Home Assistant's statistics count
+  a reset, and then count the same minutes again when the summary came back.
+- **Daily sleep can read 0 for part of the day.** When TryFi does send a daily
+  summary, it sometimes reports zero for hours while the weekly one has data
+  (upstream #89). That is TryFi's figure.
+- **A pet or base that appears later**, a collar fitted after setup, say, gets
+  its entities on the next refresh, without a reload.
 - **Location is where the collar last reported**, which it does on its own
   schedule.
 

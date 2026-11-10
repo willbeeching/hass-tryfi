@@ -98,6 +98,11 @@ def mutation(sessionId, qString, qVariables):
     
     params = {"query": qString, "variables": json.loads(qVariables)}
     jsonObject = execute(url, sessionId, params=params, method='POST').json()
+    # hass-tryfi: any error on a mutation is a refusal. TryFi answers one
+    # with the mutation's own field null beside the errors, so the data object
+    # is not empty and the query check below lets it through as a success.
+    if isinstance(jsonObject, dict) and jsonObject.get('errors'):
+        raise TryFiError(f"TryFi refused the change: {errorMessages(jsonObject)}")
     return checkErrors(jsonObject)
 
 def query(sessionId : requests.Session, qString):
@@ -122,6 +127,8 @@ def execute(url : str, sessionId : requests.Session, method: Literal['GET', 'POS
 # a KeyError somewhere else. Raise it here with TryFi's own message instead.
 def checkErrors(jsonObject):
     if isinstance(jsonObject, dict) and jsonObject.get('errors') and not jsonObject.get('data'):
-        messages = '; '.join(str(e.get('message', e) if isinstance(e, dict) else e) for e in jsonObject['errors'])
-        raise TryFiError(f"TryFi returned an error: {messages}")
+        raise TryFiError(f"TryFi returned an error: {errorMessages(jsonObject)}")
     return jsonObject
+
+def errorMessages(jsonObject):
+    return '; '.join(str(e.get('message', e) if isinstance(e, dict) else e) for e in jsonObject['errors'])

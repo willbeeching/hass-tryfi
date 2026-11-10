@@ -52,7 +52,9 @@ class FiPet(object):
             LOGGER.warning(f"Unknown day of birth")
             self._dayOfBirth = None
         self._gender = petJSON.get('gender')
-        self._weight = float(petJSON['weight']) if 'weight' in petJSON else None
+        # hass-tryfi: TryFi sends "weight": null for a pet without one, which
+        # float() rejected, and the whole pet with it.
+        self._weight = float(petJSON['weight']) if petJSON.get('weight') is not None else None
         try:
             self._breed = petJSON['breed']['name']
         except:
@@ -68,7 +70,7 @@ class FiPet(object):
             self._photoLink = ""
         self._device = FiDevice(petJSON['device']['id'])
         self._device.setDeviceDetailsJSON(petJSON['device'])
-        self._connectedTo = self.setConnectedTo(petJSON['device']['lastConnectionState'])
+        self._connectedTo = self.setConnectedTo(petJSON['device'].get('lastConnectionState'))
 
     def copyAttrs(self, other, attrs):
         for attr in attrs:
@@ -149,49 +151,26 @@ class FiPet(object):
 
     # set the Pet's current rest details for daily, weekly and monthly
     def setRestStats(self, restJSONDaily, restJSONWeekly, restJSONMonthly):
-        #setting default values to zero in case this feature is not supported by older collars
-        self._dailyNap = 0
-        self._dailySleep = 0
-        self._weeklyNap = 0
-        self._weeklySleep = 0
-        self._monthlyNap = 0
-        self._monthlySleep = 0
-        try:
-            for sleepAmount in restJSONDaily['restSummaries'][0]['data']['sleepAmounts']:
-                if sleepAmount['type'] == 'SLEEP':
-                    self._dailySleep = int(sleepAmount['duration'])
-                if sleepAmount['type'] == "NAP":
-                    self._dailyNap = int(sleepAmount['duration'])
-        except TryFiError as e:
-            LOGGER.error(f"Unable to set values Daily Rest Stats for Pet {self.name}.\nException: {e}\nwhile parsing {restJSONDaily}")
-            capture_exception(e)
-            raise TryFiError("Unable to set Pet Daily Rest Stats")
-        except Exception as e:
-            capture_exception(e)
-        try:
-            for sleepAmount in restJSONWeekly['restSummaries'][0]['data']['sleepAmounts']:
-                if sleepAmount['type'] == 'SLEEP':
-                    self._weeklySleep = int(sleepAmount['duration'])
-                if sleepAmount['type'] == 'NAP':
-                    self._weeklyNap = int(sleepAmount['duration'])
-        except TryFiError as e:
-            LOGGER.error(f"Unable to set values Weekly Rest Stats for Pet {self.name}.\nException: {e}\nwhile parsing {restJSONWeekly}")
-            capture_exception(e)
-            raise TryFiError("Unable to set Pet Weekly Rest Stats")
-        except Exception as e:
-            capture_exception(e)
-        try:
-            for sleepAmount in restJSONMonthly['restSummaries'][0]['data']['sleepAmounts']:
-                if sleepAmount['type'] == 'SLEEP':
-                    self._monthlySleep = int(sleepAmount['duration'])
-                if sleepAmount['type'] == 'NAP':
-                    self._monthlyNap = int(sleepAmount['duration'])
-        except TryFiError as e:
-            LOGGER.error(f"Unable to set values Monthly Rest Stats for Pet {self.name}.\nException: {e}\nwhile parsing {restJSONMonthly}")
-            capture_exception(e)
-            raise TryFiError("Unable to set Pet Monthly Rest Stats")
-        except Exception as e:
-            capture_exception(e)
+        # hass-tryfi: a period with no summary is None (unknown), not 0.
+        # Upstream defaulted everything to 0 first, so a summary missing for one
+        # refresh dropped a running total to zero, which Home Assistant's
+        # statistics count as a reset, counting the same minutes again when it
+        # came back. A summary present with no SLEEP or NAP entry is still 0.
+        for period, restJSON in (('daily', restJSONDaily), ('weekly', restJSONWeekly), ('monthly', restJSONMonthly)):
+            sleep = nap = None
+            try:
+                amounts = restJSON['restSummaries'][0]['data']['sleepAmounts']
+            except Exception as e:
+                capture_exception(e)
+            else:
+                sleep = nap = 0
+                for sleepAmount in amounts or []:
+                    if sleepAmount['type'] == 'SLEEP':
+                        sleep = int(sleepAmount['duration'])
+                    if sleepAmount['type'] == 'NAP':
+                        nap = int(sleepAmount['duration'])
+            setattr(self, f'_{period}Sleep', sleep)
+            setattr(self, f'_{period}Nap', nap)
 
     # Update the Stats of the pet
     def updateStats(self, sessionId):

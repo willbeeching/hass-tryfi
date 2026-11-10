@@ -356,15 +356,6 @@ async def test_a_collarless_pet_does_not_hide_the_collared_one(
     assert hass.states.get("sensor.kitchen_base") is not None
 
 
-async def test_missing_rest_stats_read_as_zero(
-    hass: HomeAssistant, loaded: FakeCloud, freezer: FrozenDateTimeFactory
-) -> None:
-    # Older collars do not report rest; pytryfi defaults it to zero.
-    loaded.has_rest_stats = False
-    await _advance(hass, freezer)
-    assert float(hass.states.get("sensor.biscuit_daily_sleep").state) == 0
-
-
 async def test_new_readings_arrive_on_the_next_poll(
     hass: HomeAssistant, loaded: FakeCloud, freezer: FrozenDateTimeFactory
 ) -> None:

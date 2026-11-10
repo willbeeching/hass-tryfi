@@ -56,6 +56,10 @@ class FakeCloud:
         self.graphql_down = False
         self.mutations_fail = False
         self.mutations_answer_empty = False
+        # A GraphQL refusal: the mutation's field comes back null with errors.
+        self.mutations_rejected = False
+        # Keys set (or, with None, nulled) on the collared pet's description.
+        self.pet_overrides: dict[str, Any] = {}
         self.has_location = True
         # "rest", "rest_unsaved_place" (place: null), "walk", "walk_no_positions"
         self.location_mode = "rest"
@@ -144,6 +148,7 @@ class FakeCloud:
                     "device": self.device(),
                 }
             )
+            pets[0].update(self.pet_overrides)
         pets.extend(copy.deepcopy(self.extra_pets))
         base = {
             "baseId": BASE_ID,
@@ -274,6 +279,15 @@ class FakeCloud:
             raise requests.ConnectionError("mutation failed")
         variables = body["variables"]
         self.mutations.append(variables)
+        if self.mutations_rejected:
+            # Refused: nothing on the collar changes.
+            key = (
+                "setDeviceLed"
+                if "ledColorCode" in variables
+                else ("updateDeviceOperationParams")
+            )
+            body = {"data": {key: None}, "errors": [{"message": "Not allowed"}]}
+            return FakeResponse(200, body)
         if "ledColorCode" in variables:
             self.led_code = variables["ledColorCode"]
             key = "setDeviceLed"

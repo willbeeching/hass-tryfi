@@ -42,7 +42,8 @@ def test_a_pet_without_a_collar_does_not_hide_the_others(
 def test_a_pet_that_cannot_be_read_does_not_hide_the_others(
     cloud: FakeCloud,
 ) -> None:
-    broken = {"id": "pet-odd", "name": "Odd", "device": {"id": "d"}}
+    # A device with no id: nothing to build a collar from.
+    broken = {"id": "pet-odd", "name": "Odd", "device": {"moduleId": "m"}}
     cloud.extra_pets = [broken]
     assert [pet.petId for pet in _tryfi(cloud).pets] == [PET_ID]
 

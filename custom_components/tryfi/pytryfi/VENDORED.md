@@ -31,6 +31,7 @@ change is marked in the code with a `hass-tryfi:` comment and listed below.
 | `common/__init__.py` | Added, empty. | A regular package rather than a namespace one. |
 | `common/query.py` | 30-second timeout on every request. | No timeout meant a connection that died silently hung the poll until a reload (#56, #91). |
 | `common/query.py` | Non-2xx answers raise; a GraphQL `errors` answer with no data raises `TryFiError` with TryFi's message. | Failures surfaced as a `KeyError` somewhere else, or not at all. |
+| `common/query.py` | A mutation answered with any `errors` raises, even when `data` is present. | TryFi refuses a change with the mutation's field `null` beside the errors; the data object is not empty, so it read as success and Home Assistant reported Lost Mode set when it was not. |
 | `__init__.py` | Login request has the same timeout. | As above. |
 | `__init__.py` | Pets and bases load one at a time; one that fails is skipped (first load) or keeps its last readings (refresh). | One odd pet abandoned every pet: "only the bases show up" (#61, #62, #67, #87, #96, #99, #102). |
 | `__init__.py` | Pets whose `device` is not an object are skipped. | Upstream compared it with the string `"None"`, but TryFi sends `null` for a pet with no collar (a Nano chip, a cat, a shared pet). |
@@ -43,6 +44,8 @@ change is marked in the code with a `hass-tryfi:` comment and listed below.
 | `fiPet.py` | `place: null` handled. | TryFi sends it when resting somewhere that is not a saved place. |
 | `fiPet.py` | A walk with no positions yet uses the end of its path. | Otherwise the tracker lost its fix at the start of every walk. |
 | `fiPet.py` | Each stats period read independently. | A period left out no longer costs the other two. |
+| `fiPet.py` | A rest period with no summary is `None`, not `0`. | A summary missing for one refresh dropped a running total to zero, which Home Assistant's statistics count as a reset, then counted the same minutes again when it returned. |
+| `fiPet.py` | `weight: null` and a missing `lastConnectionState` tolerated. | Either one skipped the whole collared pet. |
 | `fiPet.py` | `setConnectedTo` tolerates no connection state. | A collar that never connected failed the whole pet. |
 
 Issue numbers are on [sbabcock23/hass-tryfi](https://github.com/sbabcock23/hass-tryfi/issues).

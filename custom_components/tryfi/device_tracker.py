@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import TryFiConfigEntry, TryFiDataUpdateCoordinator
-from .entity import TryFiPetEntity
+from .entity import TryFiPetEntity, async_add_per_pet
 
 
 async def async_setup_entry(
@@ -20,8 +20,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(
-        TryFiPetTracker(coordinator, pet) for pet in coordinator.data.pets
+    async_add_per_pet(
+        entry, async_add_entities, lambda pet: [TryFiPetTracker(coordinator, pet)]
     )
 
 
