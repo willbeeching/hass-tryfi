@@ -1,94 +1,64 @@
-import logging
+"""Where each pet's collar last reported itself."""
 
-from homeassistant.components.device_tracker import SourceType
-from homeassistant.components.device_tracker.config_entry import TrackerEntity
-from homeassistant.const import (
-    PERCENTAGE,
-    STATE_OK,
-    STATE_PROBLEM,
-    UnitOfLength,
-    UnitOfTime
-)
-from homeassistant.core import callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
-from homeassistant.helpers.icon import icon_for_battery_level
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
+from __future__ import annotations
 
-from .const import DOMAIN
+from typing import Any
 
-LOGGER = logging.getLogger(__name__)
+# From the package, not from .config_entry: that path is deprecated and goes
+# in 2027.6 (upstream sbabcock23/hass-tryfi#109).
+from homeassistant.components.device_tracker import SourceType, TrackerEntity
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .coordinator import TryFiConfigEntry, TryFiDataUpdateCoordinator
+from .entity import TryFiPetEntity
 
 
-async def async_setup_entry(hass, config_entry, async_add_devices):
-    """Add sensors for passed config_entry in HA."""
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
-
-    tryfi = coordinator.data
-
-    new_devices = []
-    for pet in tryfi.pets:
-        new_devices.append(TryFiPetTracker(async_add_devices, hass, pet, coordinator))
-    if new_devices:
-        async_add_devices(new_devices, True)
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: TryFiConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    coordinator = entry.runtime_data
+    async_add_entities(
+        TryFiPetTracker(coordinator, pet) for pet in coordinator.data.pets
+    )
 
 
-class TryFiPetTracker(CoordinatorEntity, TrackerEntity):
-    def __init__(self, see, hass, pet, coordinator):
-        self._petId = pet.petId
-        self._see = see
-        super().__init__(coordinator)
+class TryFiPetTracker(TryFiPetEntity, TrackerEntity):
+    # Battery is not reported here: battery_level on a tracker is unsupported
+    # from 2027.7, and the collar battery already has its own sensor.
+
+    # Trackers default to the diagnostic category, which files the pet's
+    # location at the bottom of its device page under housekeeping. Where the
+    # pet is, is the point.
+    # Core types the attribute without None, though Entity reads it as optional.
+    _attr_entity_category = None  # type: ignore[assignment]
+
+    def __init__(self, coordinator: TryFiDataUpdateCoordinator, pet: Any) -> None:
+        super().__init__(coordinator, pet, "tracker", "tracker")
 
     @property
-    def name(self):
-        return f"{self.pet.name} Tracker"
+    def entity_picture(self) -> str | None:
+        # Read even while the entity is unavailable, so it has to cope with
+        # the pet having gone.
+        pet = self.pet
+        return (pet.photoLink or None) if pet is not None else None
 
     @property
-    def pet(self):
-        return self.coordinator.data.getPet(self.petId)
+    def latitude(self) -> float | None:
+        # None until the collar has a fix. Upstream returned float(None) here,
+        # which raised on every update for a pet with no location yet.
+        return _coordinate(self.pet.currLatitude)
 
     @property
-    def petId(self):
-        return self._petId
+    def longitude(self) -> float | None:
+        return _coordinate(self.pet.currLongitude)
 
     @property
-    def unique_id(self):
-        return f"{self.pet.petId}-tracker"
-
-    @property
-    def device_id(self):
-        return self.unique_id
-
-    @property
-    def entity_picture(self):
-        return self.pet.photoLink
-
-    @property
-    def latitude(self):
-        return float(self.pet.currLatitude)
-
-    @property
-    def longitude(self):
-        return float(self.pet.currLongitude)
-
-    @property
-    def source_type(self):
-        """Return the source type, eg gps or router, of the device."""
+    def source_type(self) -> SourceType:
         return SourceType.GPS
 
-    @property
-    def battery_level(self):
-        return self.pet.device.batteryPercent
 
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self.pet.petId)},
-            "name": self.pet.name,
-            "manufacturer": "TryFi",
-            "model": self.pet.breed,
-            "sw_version": self.pet.device.buildId,
-        }
+def _coordinate(value: Any) -> float | None:
+    return None if value is None else float(value)

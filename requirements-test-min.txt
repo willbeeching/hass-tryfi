@@ -1,0 +1,6 @@
+# The harness release pinning the oldest core this integration claims to
+# support, so the behavioural tests run against it rather than only being
+# imported against it. 0.13.201 is the release pinning 2025.1.0; the CI lane
+# asserts that, so this and MIN_HA_VERSION cannot drift apart silently.
+pytest-homeassistant-custom-component==0.13.201
+pytest-cov
